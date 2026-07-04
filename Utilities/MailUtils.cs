@@ -288,6 +288,26 @@ public static class MailUtils
 
         return GetEmailWrapper(preheader, title, content);
     }
+    
+    public static string GetAccountRestoredEmailHtml(string accountNumber, string customerName)
+    {
+        var title = "Account Alert · Account Restored";
+        var preheader = $"Your account {accountNumber} has been restored.";
+    
+        var detailsRows = string.Concat(
+            DetailRow("Account Number", accountNumber, false),
+            DetailRow("Action", "Account Restoration", true),
+            DetailRow("Status", "Active", false),
+            DetailRow("Timestamp", $"{DateTime.UtcNow:f} (UTC)", true)
+        );
+    
+        var content = $@"
+        <div style='font-family: Georgia, ""Times New Roman"", serif; font-size:20px; font-weight:700; color:#1a1a1a; margin-bottom:10px;'>Account Restored</div>
+        <p style='margin:0 0 4px 0; color:#555555;'>Hello {customerName}, this confirms that your account has been restored and is now active again. If you did not request this, please contact support immediately.</p>
+        {DetailsTable(detailsRows)}";
+    
+        return GetEmailWrapper(preheader, title, content);
+    }
 
     // ------------------------------------------------------------------
     // Deposit alert

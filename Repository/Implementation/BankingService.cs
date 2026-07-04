@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using SimpleBankingAPI.Data;
 using SimpleBankingAPI.DTOs.Request;
 using SimpleBankingAPI.DTOs.Response;
@@ -13,12 +14,15 @@ public class BankingService : IBankingService
     private readonly BankingDbContext _context;
     private readonly ILogger<BankingService> _logger;
     private readonly IEmailService _emailService;
+    private readonly BankInfo _bankInfo;
 
-    public BankingService(BankingDbContext context, ILogger<BankingService> logger, IEmailService emailService)
+
+    public BankingService(BankingDbContext context, ILogger<BankingService> logger, IEmailService emailService, IOptions<BankInfo> bankInfo)
     {
         _context = context;
         _logger = logger;
         _emailService = emailService;
+        _bankInfo = bankInfo.Value;
     }
     
     
@@ -53,7 +57,7 @@ public class BankingService : IBankingService
            var response = new AccountResponse()
            {
                AccountNumber = newAcct.AccountNumber,
-               AccountName = $"{newAcct.FirstName} {newAcct.LastName}",
+               CustomerName = $"{newAcct.FirstName} {newAcct.LastName}",
                Balance = newAcct.Balance,
                Email = newAcct.Email,
                CreatedAt = newAcct.CreatedAt
@@ -86,7 +90,7 @@ public class BankingService : IBankingService
             var response = new AccountResponse()
             {
                 AccountNumber = account.AccountNumber,
-                AccountName = $"{account.FirstName} {account.LastName}",
+                CustomerName = $"{account.FirstName} {account.LastName}",
                 Balance = account.Balance,
                 Email = account.Email,
                 CreatedAt = account.CreatedAt
@@ -122,7 +126,7 @@ public class BankingService : IBankingService
            var response = new AccountResponse()
            {
                AccountNumber = account.AccountNumber,
-               AccountName = $"{account.FirstName} {account.LastName}",
+               CustomerName = $"{account.FirstName} {account.LastName}",
                Balance = account.Balance,
                Email = account.Email,
                CreatedAt = account.CreatedAt
@@ -170,6 +174,34 @@ public class BankingService : IBankingService
             return ApiResponse<bool>.FailureResponse("An error occurred while deleting the account.");
         }
     }
+    
+    public async Task<ApiResponse<bool>> RestoreAccountAsync(string accountNumber)
+    {
+        try
+        {
+            var account = await _context.Accounts.FirstOrDefaultAsync(x => x.AccountNumber == accountNumber && x.IsDeleted);
+            if (account == null)
+            {
+                _logger.LogWarning($"Restore failed: Deleted account {accountNumber} not found.");
+                return ApiResponse<bool>.FailureResponse("Account not found or is not currently deleted.");
+            }
+    
+            account.IsDeleted = false;
+    
+            _context.Accounts.Update(account);
+            await _context.SaveChangesAsync();
+    
+            _logger.LogInformation($"Successfully restored account {accountNumber}.");
+            await _emailService.SendAccountRestoredEmailAsync(account.Email, $"{account.FirstName} {account.LastName}", account.AccountNumber);
+            
+            return ApiResponse<bool>.Success(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error occurred while restoring account {accountNumber}.");
+            return ApiResponse<bool>.FailureResponse("An error occurred while restoring the account.");
+        }
+    }
 
     public async Task<ApiResponse<IEnumerable<AccountResponse>>> GetAllAccountsAsync()
     {
@@ -180,7 +212,7 @@ public class BankingService : IBankingService
                 .Select(account => new AccountResponse
                 {
                     AccountNumber = account.AccountNumber,
-                    AccountName = $"{account.FirstName} {account.LastName}",
+                    CustomerName = $"{account.FirstName} {account.LastName}",
                     Balance = account.Balance,
                     Email = account.Email,
                     CreatedAt = account.CreatedAt
@@ -409,7 +441,7 @@ public class BankingService : IBankingService
             var response = new BalanceResponse()
             {
                 AccountNumber = account.AccountNumber,
-                AccountName = $"{account.FirstName} {account.LastName}",
+                CustomerName = $"{account.FirstName} {account.LastName}",
                 Balance = account.Balance
             };
             
@@ -424,8 +456,117 @@ public class BankingService : IBankingService
         }
     }
 
-    public async Task<ApiResponse<IEnumerable<TransactionResponse>>> GetTransactionsHistoryAsync(string accountNumber)
+    
+      private static readonly HashSet<string> GetCreditTransactionTypes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Deposit", "Credit"
+        };
+
+      
+     public async Task<ApiResponse<StatementResponse>> GetTransactionsHistoryAsync(string accountNumber, DateTime? fromDate, DateTime? toDate)
+{
+    try
     {
-        throw new NotImplementedException();
+        var account = await _context.Accounts
+            .FirstOrDefaultAsync(x => x.AccountNumber == accountNumber);
+
+        if (account == null)
+        {
+            _logger.LogError($"Account with account number {accountNumber} not found");
+            return ApiResponse<StatementResponse>.FailureResponse("Account not found");
+        }
+
+        if (account.IsDeleted)
+        {
+            _logger.LogError($"Attempted access to deactivated account: {account.AccountNumber} - GetTransactionsHistory");
+            return ApiResponse<StatementResponse>.FailureResponse("This account has been deactivated.");
+        }
+
+        if (fromDate.HasValue && toDate.HasValue && fromDate.Value.Date > toDate.Value.Date)
+        {
+            _logger.LogError($"From date is later than to date - transaction history date");
+            return ApiResponse<StatementResponse>.FailureResponse("FromDate cannot be later than ToDate");
+        }
+
+        var startDate = fromDate?.Date;
+        var endDate = toDate?.Date;
+
+        // 1. CHANGED: Filter by AccountNumber and fetch to memory first to avoid EF sorting translation limits
+        var dbTransactions = await _context.Transactions
+            .Where(x => x.AccountNumber == account.AccountNumber)
+            .ToListAsync();
+
+        // 2. FIXED: Changed 't.Date' to 't.CreatedAt' to match your Transaction model
+        var allTransactions = dbTransactions.OrderBy(t => t.CreatedAt).ToList();
+
+        decimal TransactionAmount(Transaction transaction)
+        {
+            return GetCreditTransactionTypes.Contains(transaction.TransactionType)
+                ? transaction.Amount : -transaction.Amount;
+        }
+
+        // FIXED: Changed 'x.Date' to 'x.CreatedAt'
+        var openingBalance = startDate.HasValue ? allTransactions.Where(x => x.CreatedAt < startDate.Value).Sum(TransactionAmount) : 0;
+        
+        // trx counts within range
+        // FIXED: Changed 't.Date' to 't.CreatedAt'
+        var transactionsInRange = allTransactions
+            .Where(t => (!startDate.HasValue || t.CreatedAt >= startDate.Value) && (!endDate.HasValue || t.CreatedAt <= endDate.Value))
+            .ToList();
+        
+        //get all credits transactions 
+        var totalCredits = transactionsInRange.Where(t => GetCreditTransactionTypes.Contains(t.TransactionType)).Sum(t => t.Amount);
+        // get all debits trxs
+        var totalDebits = transactionsInRange.Where(t => !GetCreditTransactionTypes.Contains(t.TransactionType)).Sum(t => t.Amount);
+        
+        // get closing balance
+        var closingBalance = openingBalance + totalCredits - totalDebits;
+
+        var response = new StatementResponse()
+        {
+            AccountNumber = account.AccountNumber,
+            CustomerName = $"{account.FirstName} {account.LastName}",
+           FromDate = fromDate ?? DateTime.MinValue, 
+               ToDate = toDate ?? DateTime.UtcNow,
+            OpeningBalance = openingBalance,
+            ClosingBalance = closingBalance,
+            TotalCredit = totalCredits,
+            TotalDebit = totalDebits,
+            TransactionCount = transactionsInRange.Count, // Changed from Count() to Count
+            
+            // FIXED: Changed 't.Date' to 't.CreatedAt', 't.Naration' to 't.Narration', and added .ToList()
+            Transactions = transactionsInRange.OrderByDescending(t => t.CreatedAt)
+                .Select(t => new TransactionResponse
+                {
+                    Type = t.TransactionType,
+                    AccountNumber = t.AccountNumber,
+                    Amount = t.Amount,
+                    Narration = t.Narration, 
+                    Reference = t.Reference,
+                    CreatedAt = t.CreatedAt,
+                }).ToList()
+        };
+        
+        _logger.LogInformation($"Successfully retrieved {response.TransactionCount} transactions for account {account.AccountNumber}");
+        
+        return ApiResponse<StatementResponse>.Success(response);
+    }
+    catch (Exception e)
+    {
+       // FIXED: Passed exception 'e' as the first parameter to log the actual stack trace
+       _logger.LogError(e, "Failed to get transactions history");
+       return ApiResponse<StatementResponse>.FailureResponse("Failed to get transactions history");
+    }
+}
+
+    public ApiResponse<BankInfoResponse> GetBankInfo()
+    {
+        var response = new BankInfoResponse
+        {
+            BankName = _bankInfo.BankName,
+            Description = _bankInfo.Description
+        };
+
+        return ApiResponse<BankInfoResponse>.Success(response);
     }
 }

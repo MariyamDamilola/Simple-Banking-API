@@ -92,6 +92,18 @@ public class EmailService : IEmailService
         await SendMimeMessageAsync(message);
     }
     
+    public async Task SendAccountRestoredEmailAsync(string toEmail, string customerName, string accountNumber)
+    {
+        var subject = "Your Account Has Been Restored";
+
+        var htmlbody = MailUtils.GetAccountRestoredEmailHtml(customerName, accountNumber);
+
+        var message = CreateBaseMessage(toEmail, subject);
+        message.Body = new TextPart(TextFormat.Html) { Text = htmlbody };
+
+        await SendMimeMessageAsync(message);
+    }
+    
     public async Task SendDepositEmailAsync(string toEmail, string customerName, string accountNumber, decimal newBalance, decimal depositAmount,
         string reference)
     {

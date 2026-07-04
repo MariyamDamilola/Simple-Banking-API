@@ -19,11 +19,22 @@ builder.Services.AddDbContext<BankingDbContext>(options =>
 );
 
 builder.Services.Configure<SmtpMail>(builder.Configuration.GetSection("SmtpMail"));
+builder.Services.Configure<BankInfo>(builder.Configuration.GetSection("BankInfo"));
 
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IBankingService, BankingService>();
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Frontend", policy =>
+        policy.WithOrigins("http://localhost:5173")
+            .AllowAnyHeader()
+            .AllowAnyMethod());
+});
+
+
 var app = builder.Build();
+
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -31,8 +42,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+app.UseCors("Frontend");
 
 app.UseHttpsRedirection();
+
 
 app.UseAuthorization();
 

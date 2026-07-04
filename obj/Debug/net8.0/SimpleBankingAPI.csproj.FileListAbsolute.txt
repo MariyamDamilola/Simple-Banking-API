@@ -147,3 +147,4 @@ C:\Users\ANYTHING\RiderProjects\SimpleBankingAPI\obj\Debug\net8.0\refint\SimpleB
 C:\Users\ANYTHING\RiderProjects\SimpleBankingAPI\obj\Debug\net8.0\SimpleBankingAPI.pdb
 C:\Users\ANYTHING\RiderProjects\SimpleBankingAPI\obj\Debug\net8.0\SimpleBankingAPI.genruntimeconfig.cache
 C:\Users\ANYTHING\RiderProjects\SimpleBankingAPI\obj\Debug\net8.0\ref\SimpleBankingAPI.dll
+C:\Users\ANYTHING\RiderProjects\SimpleBankingAPI\obj\Debug\net8.0\SimpleBankingAPI.sourcelink.json

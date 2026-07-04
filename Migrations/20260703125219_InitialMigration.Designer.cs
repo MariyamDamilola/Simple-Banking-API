@@ -12,7 +12,7 @@ using SimpleBankingAPI.Data;
 namespace SimpleBankingAPI.Migrations
 {
     [DbContext(typeof(BankingDbContext))]
-    [Migration("20260702075201_InitialMigration")]
+    [Migration("20260703125219_InitialMigration")]
     partial class InitialMigration
     {
         /// <inheritdoc />

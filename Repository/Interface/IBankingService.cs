@@ -15,6 +15,9 @@ public interface IBankingService
     
     Task<ApiResponse<bool>> DeleteAccountAsync(string accountNumber);
     
+    Task<ApiResponse<bool>> RestoreAccountAsync(string accountNumber);
+
+    
     Task<ApiResponse<IEnumerable<AccountResponse>>> GetAllAccountsAsync();
     
     // Bank Operations for Account 
@@ -26,6 +29,8 @@ public interface IBankingService
     
     Task<ApiResponse<BalanceResponse>> CheckBalanceAsync(string accountNumber);
     
-    Task<ApiResponse<IEnumerable<TransactionResponse>>> GetTransactionsHistoryAsync(string accountNumber);
+    Task<ApiResponse<StatementResponse>> GetTransactionsHistoryAsync(string accountNumber, DateTime? fromDate = null, DateTime? toDate = null);
+    
+    ApiResponse<BankInfoResponse> GetBankInfo();
 
 }
